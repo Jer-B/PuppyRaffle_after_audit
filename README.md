@@ -1,3 +1,9 @@
+[Link to Github repo of PuppyRaffle, Before review](https://github.com/Cyfrin/4-puppy-raffle-audit)
+
+# All my security review reports
+
+[Link to my reports list](https://github.com/Jer-B/security_review_reports_list)
+
 <p align="center">
 <img src="./images/puppy-raffle.svg" width="400" alt="puppy-raffle">
 <br/>
@@ -13,10 +19,7 @@ This project is to enter a raffle to win a cute dog NFT. The protocol should do 
 4. Every X seconds, the raffle will be able to draw a winner and be minted a random puppy
 5. The owner of the protocol will set a feeAddress to take a cut of the `value`, and the rest of the funds will be sent to the winner of the puppy.
 
-- [Contest Details](#contest-details)
-  - [Contest Details](#contest-details-1)
-    - [Prize Pool](#prize-pool)
-  - [Stats](#stats)
+- [All my security review reports](#all-my-security-review-reports)
 - [Puppy Raffle](#puppy-raffle)
 - [Getting Started](#getting-started)
   - [Requirements](#requirements)

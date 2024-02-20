@@ -12,6 +12,9 @@ docs/
 
 # Dotenv file
 .env
+.DS_Store
 
 broadcast
-.DS_Store
+
+audit-data/logo.pdf
+audit-data/logo.png

